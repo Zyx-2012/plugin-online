@@ -10,7 +10,7 @@ spec:
   requires: ">=2.23.0"
   author:
     name: Zyx-2012
-    website: https://github.com/Zyx-2012
+    website: https://blog.zyx-2012.cn
   logo: logo.png
   homepage: https://github.com/Zyx-2012/plugin-online#readme
   repo: https://github.com/Zyx-2012/plugin-online

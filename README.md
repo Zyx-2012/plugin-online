@@ -1,4 +1,7 @@
-# Halo Plugin Online Monitor
+````md
+# Halo Plugin Online
+
+![Logo](https://github.com/Zyx-2012/plugin-online/blob/main/src/main/resources/logo.png)
 
 一个用于 **Halo** 的在线监控插件，提供站点实时在线人数、活跃页面统计、路径热度排行以及后台监控看板。
 
@@ -175,6 +178,27 @@ ui/
 
 ---
 
+## 主题兼容说明
+
+本插件通过 `TemplateFooterProcessor` 向主题页面注入前端脚本，因此主题模板中必须包含：
+
+```html
+<halo:footer />
+```
+
+通常建议将该标签放在主题公共布局文件的 `</body>` 之前，例如 `layout.html` 中。
+
+如果主题缺少 `<halo:footer />`，插件的前端脚本将无法注入，可能会出现以下问题：
+
+* 页面未加载 `client.js`
+* WebSocket 未建立连接
+* 在线人数无法统计
+* 前台相关功能失效
+
+如果你在更换主题后发现插件没有生效，请优先检查当前主题的公共布局文件中是否包含 `<halo:footer />`。
+
+---
+
 ## 注意事项
 
 * 当前“过去 24 小时峰值”为**内存态统计**，插件或宿主重启后会重新累计
@@ -203,3 +227,6 @@ ui/
 ## 反馈
 
 如果你在使用过程中发现问题或有功能建议，欢迎提交 Issue 或反馈交流。
+
+```
+```
