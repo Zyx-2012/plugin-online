@@ -24,5 +24,26 @@ spec:
           name: refresh_rate
           value: 10
           label: 控制台刷新率
-          help: 后台看板主动拉取最新数据的时间间隔。单位：秒
+          help: 后台看板主动拉取一次最新数据的时间间隔。单位：秒
           validation: required|number|min:3|max:120
+
+        - $formkit: textarea
+          name: origin_whitelist
+          value: ""
+          label: WebSocket 来源白名单
+          help: |
+            允许连接在线统计 WebSocket 的来源白名单。
+            支持每行一条或英文逗号分隔。
+            支持以下写法：
+            1. 域名：blog.example.com
+            2. 泛域名：*.example.com
+            3. IP：192.168.1.10
+            4. 带端口：192.168.1.10:8090
+            5. 完整来源：http://192.168.1.10:8090
+            6. 全部放行：*
+            留空时仅放行内置默认值：localhost、127.0.0.1、zyx2012.cn、*.zyx2012.cn
+          placeholder: |
+            192.168.1.10
+            blog.example.com
+            *.example.com
+            https://your-domain.com
