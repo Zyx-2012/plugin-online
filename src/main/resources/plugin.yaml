@@ -16,7 +16,7 @@ spec:
   repo: https://github.com/Zyx-2012/plugin-online
   issues: https://github.com/Zyx-2012/plugin-online/issues
   displayName: "在线显示"
-  description: "实时显示各页面在线总人数"
+  description: "让用户看到有多少人在与他看同一个页面"
   license:
     - name: "GPL-3.0"
       url: "https://github.com/Zyx-2012/plugin-online/blob/main/LICENSE"
