@@ -138,6 +138,7 @@ fetch('/apis/online-user.zyx2012.cn/v1alpha1/stats')
 * **清理频率**：超过指定时间未收到心跳时，将会话视为失活
 * **数据公开性**：是否允许前端公开获取详细路径分布
 * **控制台刷新率**：后台看板轮询接口的时间间隔
+* **WebSocket 来源白名单**：允许哪些域名、IP 或来源连接在线统计 WebSocket
 
 ---
 
@@ -158,6 +159,32 @@ ui/
 └── types.ts
 ```
 
+插件前台脚本通过 `TemplateFooterProcessor` 注入到主题页面，用于建立 WebSocket 连接并同步当前页面路径。
+
+前台脚本需要处理以下场景：
+
+* 首次加载时建立 WebSocket 连接
+* WebSocket `open` 后发送当前 `pathname`
+* PJAX / 无刷新切页后重新同步路径
+* 浏览器前进后退缓存恢复后重新同步状态
+* 连接断开后自动重连
+* 在当前页面注册完成后，主动派发前端事件通知主题组件刷新统计
+
+当前脚本会派发以下事件：
+
+* `online-monitor:registered`：当前页面已完成注册
+* `online-monitor:path-changed`：检测到页面路径变化
+
+如果主题中有侧边栏在线统计卡片，建议监听 `online-monitor:registered` 事件后重新请求 `/stats/summary`，这样可以避免页面刷新后由于 WebSocket 还未完成首条路径上报，导致前台短暂显示 `0` 的情况。
+
+示例：
+
+```js
+window.addEventListener("online-monitor:registered", function () {
+  loadData();
+});
+```
+
 ### 后端
 
 服务端主要包含：
@@ -165,6 +192,22 @@ ui/
 * `PageOnlineHandler`：WebSocket 在线会话处理
 * `OnlineController`：统计接口
 * `OnlineFooterProcessor`：前端脚本注入
+
+`PageOnlineHandler` 负责：
+
+* 校验 WebSocket 来源
+* 记录页面与在线会话的映射关系
+* 更新页面最后活跃时间
+* 统计当前总在线人数、活跃页面数、24 小时峰值
+
+如果站点存在以下部署链路：
+
+* 内网 IP 访问
+* FRP 转发
+* Cloudflare 代理
+* 多域名访问
+
+建议在插件设置中正确配置 **WebSocket 来源白名单**，否则可能出现 `client.js` 已加载但 WebSocket 握手被拒绝，导致无法统计在线人数的问题。
 
 ---
 
@@ -227,4 +270,3 @@ ui/
 
 如果你在使用过程中发现问题或有功能建议，欢迎提交 Issue 或反馈交流。
 
-```

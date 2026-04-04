@@ -49,6 +49,18 @@
         }
     }
 
+    function emitRegistered(path) {
+        window.dispatchEvent(new CustomEvent("online-monitor:registered", {
+            detail: { path }
+        }));
+    }
+
+    function emitPathChanged(path) {
+        window.dispatchEvent(new CustomEvent("online-monitor:path-changed", {
+            detail: { path }
+        }));
+    }
+
     function connect(force) {
         const nextPath = getCurrentPath();
 
@@ -66,6 +78,11 @@
         socket.onopen = function () {
             socket.send(currentPath);
             startHeartbeat();
+
+            emitRegistered(currentPath);
+
+            setTimeout(() => emitRegistered(currentPath), 150);
+            setTimeout(() => emitRegistered(currentPath), 500);
         };
 
         socket.onclose = function () {
@@ -87,6 +104,7 @@
     function refreshIfPathChanged() {
         const nextPath = getCurrentPath();
         if (nextPath !== currentPath) {
+            emitPathChanged(nextPath);
             connect(true);
         }
     }
@@ -113,7 +131,6 @@
         window.addEventListener("hashchange", refreshIfPathChanged);
 
         window.addEventListener("pageshow", function () {
-            // 兼容浏览器前进/后退缓存恢复
             connect(true);
         });
 
