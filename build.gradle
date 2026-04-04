@@ -1,0 +1,105 @@
+plugins {
+    id 'java'
+    id "io.freefair.lombok" version "9.2.0"
+    id "run.halo.plugin.devtools" version "0.6.2"
+}
+
+group 'cn.zyx2012.online'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // 这行你已经有了，它只提供版本管理（BOM）
+    implementation platform('run.halo.tools.platform:plugin:2.23.0')
+
+    // 【新增/修改】这行是关键！它会让 Gradle 真正下载并让你的代码能引用到 Halo 的类
+    // 使用 compileOnly 是因为 Halo 插件在运行时由 Halo 主程序提供这些类
+    compileOnly 'run.halo.app:api'
+
+    // 如果你还需要使用注解处理器（如 Lombok），确保它也存在
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+}
+configurations.compileOnly {
+    resolutionStrategy {
+        force 'run.halo.app:api:2.23.0'
+    }
+}
+test {
+    useJUnitPlatform()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = 21
+}
+
+tasks.register('processUiResources', Copy) {
+    from project(':ui').layout.buildDirectory.dir('dist')
+    into layout.buildDirectory.dir('resources/main/console')
+    dependsOn project(':ui').tasks.named('assemble')
+    shouldRunAfter tasks.named('processResources')
+}
+
+tasks.named('classes') {
+    dependsOn tasks.named('processUiResources')
+}
+
+tasks.named('generatePluginComponentsIdx') {
+    notCompatibleWithConfigurationCache('This task invokes "Task.project" at execution time, which is not supported with configuration cache.')
+}
+
+halo {
+    version = '2.23'
+    externalUrl = 'http://localhost:8095'
+}
+// pat_eyJraWQiOiI1VDZxalNzZ05NVlFCZE13Wml4OXN2bF9nYUFsS1BGb1dUSXlGNW5SQ1lvIiwiYWxnIjoiUlMyNTYifQ
+// 贴在 build.gradle 最后
+// 替换之前的 re 任务
+tasks.register('re') {
+    // 1. 强制依赖链：前端编译 -> 资源拷贝 -> 编译打包
+    dependsOn project(':ui').tasks.named('assemble')
+    dependsOn tasks.named('processUiResources')
+    dependsOn tasks.named('assemble')
+
+    doLast {
+        def haloUrl = "http://localhost:8095"
+        def myToken = "pat_eyJraWQiOiI1VDZxalNzZ05NVlFCZE13Wml4OXN2bF9nYUFsS1BGb1dUSXlGNW5SQ1lvIiwiYWxnIjoiUlMyNTYifQ.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwOTUvIiwic3ViIjoienl4LTIwMTIiLCJpYXQiOjE3NzQwODIwNDksImp0aSI6ImIwM2FhNWI1LTZmM2EtNjA4Ny1mNTQzLTlhNTAwNTk3NTVjOCIsInBhdF9uYW1lIjoicGF0LXd6aXM5Z3oyIn0.lKt0z7G1E-Tuh3IbErGA-EZkE18mHm9CvvKeE5-Hr6_aUGEhIjT2iCDS8MZFZMOvp2xw7SDMwKOHAPSlbfAVtfi37FBeRRjJ7BTcLLIBAD1M_-UlJk1u0yVypjcgBlvQUj08YL5Iux-aG54KDpT5ym5eHxPkvPJCLcVCUmPjsWJX7JXtmkLi_bTxpItU8cdkphPF7pbbGThXd_DFN0gZcq5ZW7-CFKCCBeR_HiIkWQ5zCOQPJfowEuaeNwSdZvE6FzeZF_EcTrxD74h6aYAfrv8eeVX8vlDDoaCGy3msq0pOugwQHyKWZIUW5cMEswkEwM750kM33WsMcP7G0P8Qg_pA9Xn9aw3i0fnQzD1qkbYnBocQy9hepTIr-jl-vncwF7vNJzA2QMfAqJ6FHTYBSUtp7cqAP0AgnQ4yQfCZrCufafKSU8zdYA7dMpjlP8uMhuqlSSqtSWOHCfvMuOxBwjbZgZv6qkMDuUdtkT3OTiwtVEs0gYG6eJ3ynOKpmHUdCPNhrdV6OVXywnXmbycLWdd8BydAyFR1RA9RFf3JSqWWcZm7dC5L_LjjUmOBOSodVDpSGuPQ2HtitSNcoFTaAbSFdOPZN97JJ3Exhchv982YQzy11fyUSiaZkrCKAdC_-dGOgaoiw8AYS2FpF-GyLGolNLiwAIBAM0TAqHAHwug" // 记得填入你的 Token
+
+        // 2. 定位生成的 JAR
+        def libsDir = layout.buildDirectory.dir("libs").get().asFile
+        def jarFile = libsDir.listFiles()?.find {
+            it.name.endsWith(".jar") && !it.name.contains("-plain")
+        }
+
+        if (jarFile == null) {
+            println "❌ 错误：找不到生成的 JAR 包，请确认项目配置是否正确。"
+            return
+        }
+
+        // 3. 打印文件时间戳，帮你确认是不是刚刚生成的
+        def lastModified = new java.text.SimpleDateFormat("HH:mm:ss").format(new Date(jarFile.lastModified()))
+        println "🚀 正在推送 [${jarFile.name}] (最后修改时间: ${lastModified}) ..."
+
+        // 4. 调用原生 Java 进程推送
+        def pb = new ProcessBuilder(
+                'curl', '-s', '-X', 'POST', "${haloUrl}/api/admin/plugins/install",
+                '-H', "X-Halo-Admin-Access-Token: ${myToken}",
+                '-F', "file=@${jarFile.absolutePath}"
+        )
+        pb.redirectErrorStream(true)
+        def process = pb.start()
+        process.inputStream.eachLine { println it }
+        process.waitFor()
+
+        println "✅ 热重载指令已完成。"
+    }
+}

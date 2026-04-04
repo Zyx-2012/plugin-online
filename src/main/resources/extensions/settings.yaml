@@ -1,0 +1,28 @@
+apiVersion: v1alpha1
+kind: Setting
+metadata:
+  name: online-settings
+spec:
+  forms:
+    - group: basic
+      label: 基础设置
+      formSchema:
+        - $formkit: number
+          name: clean_session_time
+          value: 600
+          label: 清理频率
+          help: 超过该秒数未收到心跳，可视为失活会话。单位：秒
+          validation: required|number|min:30
+
+        - $formkit: checkbox
+          name: expose_detail_paths
+          value: false
+          label: 数据公开性
+          help: 开启后允许前端公开获取详细路径分布；关闭时建议仅公开总人数接口
+
+        - $formkit: number
+          name: refresh_rate
+          value: 10
+          label: 控制台刷新率
+          help: 后台看板主动拉取最新数据的时间间隔。单位：秒
+          validation: required|number|min:3|max:120

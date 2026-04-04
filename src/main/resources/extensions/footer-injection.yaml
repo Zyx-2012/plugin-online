@@ -1,0 +1,10 @@
+apiVersion: plugin.halo.run/v1alpha1
+kind: ExtensionDefinition
+metadata:
+  name: online-footer-injection
+spec:
+  extensionPointName: template-footer-processor
+  className: cn.zyx2012.online.handler.OnlineFooterProcessor
+  displayName: 在线人数页脚注入
+  description: 向主题端 <halo:footer/> 注入在线人数统计脚本
+  icon: user
