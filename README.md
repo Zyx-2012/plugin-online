@@ -1,4 +1,3 @@
-````md
 # Halo Plugin Online
 
 ![Logo](https://github.com/Zyx-2012/plugin-online/blob/main/src/main/resources/logo.png)
@@ -228,5 +227,4 @@ ui/
 
 如果你在使用过程中发现问题或有功能建议，欢迎提交 Issue 或反馈交流。
 
-```
 ```
