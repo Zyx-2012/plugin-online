@@ -27,11 +27,11 @@
         }
     }
 
-    function startHeartbeat() {
+    function startHeartbeat(ws) {
         clearHeartbeat();
         heartbeatTimer = setInterval(() => {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send("ping");
+            if (socket === ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("ping");
             }
         }, 30000);
     }
@@ -73,21 +73,29 @@
 
         currentPath = nextPath;
         manualClose = false;
-        socket = new WebSocket(wsUrl);
 
-        socket.onopen = function () {
-            socket.send(currentPath);
-            startHeartbeat();
+        const ws = new WebSocket(wsUrl);
+        socket = ws;
+
+        ws.onopen = function () {
+            if (socket !== ws || ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
+            ws.send(currentPath);
+            startHeartbeat(ws);
 
             emitRegistered(currentPath);
-
             setTimeout(() => emitRegistered(currentPath), 150);
             setTimeout(() => emitRegistered(currentPath), 500);
         };
 
-        socket.onclose = function () {
+        ws.onclose = function () {
             clearHeartbeat();
-            socket = null;
+
+            if (socket === ws) {
+                socket = null;
+            }
 
             if (!manualClose) {
                 reconnectTimer = setTimeout(() => {
@@ -96,8 +104,8 @@
             }
         };
 
-        socket.onerror = function () {
-            // 交给 onclose 统一重连
+        ws.onerror = function () {
+            // 交给 onclose 统一处理
         };
     }
 

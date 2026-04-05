@@ -1,14 +1,15 @@
 apiVersion: v1alpha1
 kind: Role
 metadata:
-  name: online-role-anonymous-access
+  name: online-role-public-access
   labels:
     halo.run/role-template: "true"
     halo.run/hidden: "true"
     rbac.authorization.halo.run/aggregate-to-anonymous: "true"
+    rbac.authorization.halo.run/aggregate-to-authenticated: "true"
   annotations:
     rbac.authorization.halo.run/module: "Online Monitor"
-    rbac.authorization.halo.run/display-name: "Anonymous Access"
+    rbac.authorization.halo.run/display-name: "Public Access"
 rules:
   - apiGroups: ["online-user.zyx2012.cn"]
     resources: ["stats"]

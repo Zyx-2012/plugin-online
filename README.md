@@ -85,28 +85,14 @@ GET /apis/online-user.zyx2012.cn/v1alpha1/stats/summary
 }
 ```
 
-### 获取当前总在线人数
-
-```http
-GET /apis/online-user.zyx2012.cn/v1alpha1/stats/total
-```
-
-返回示例：
-
-```json
-{
-  "total": 12
-}
-```
-
 ---
 
 ## 主题开发者调用示例
 
-### 方案一：通过标准 API 获取总在线人数
+### 方案一：通过总览接口获取总在线人数（推荐）
 
 ```js
-fetch('/apis/online-user.zyx2012.cn/v1alpha1/stats/total')
+fetch('/apis/online-user.zyx2012.cn/v1alpha1/stats/summary')
   .then(res => res.json())
   .then(data => {
     document.getElementById('online-count').innerText = data.total;
@@ -119,7 +105,19 @@ HTML 示例：
 <span id="online-count">0</span> 人在线
 ```
 
-### 方案二：自行请求统计列表
+### 方案二：通过总览接口获取更多实时信息
+
+```js
+fetch('/apis/online-user.zyx2012.cn/v1alpha1/stats/summary')
+  .then(res => res.json())
+  .then(data => {
+    console.log('当前总在线人数：', data.total);
+    console.log('当前活跃页面数：', data.activePages);
+    console.log('过去 24 小时峰值：', data.peak24h);
+  });
+```
+
+### 方案三：自行请求统计列表
 
 ```js
 fetch('/apis/online-user.zyx2012.cn/v1alpha1/stats')
