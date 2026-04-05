@@ -1,0 +1,24 @@
+apiVersion: v1alpha1
+kind: Role
+metadata:
+  name: online-role-anonymous-access
+  labels:
+    halo.run/role-template: "true"
+    halo.run/hidden: "true"
+    rbac.authorization.halo.run/aggregate-to-anonymous: "true"
+  annotations:
+    rbac.authorization.halo.run/module: "Online Monitor"
+    rbac.authorization.halo.run/display-name: "Anonymous Access"
+rules:
+  - apiGroups: ["online-user.zyx2012.cn"]
+    resources: ["stats"]
+    verbs: ["list"]
+
+  - apiGroups: ["online-user.zyx2012.cn"]
+    resources: ["stats"]
+    resourceNames: ["summary", "total"]
+    verbs: ["get"]
+
+  - apiGroups: ["online-user.zyx2012.cn"]
+    resources: ["online-ws"]
+    verbs: ["watch"]
