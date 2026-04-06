@@ -87,7 +87,6 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
                     touch(uri);
                     recordTotalSample();
 
-                    log.info("[Online-Plugin] 用户进入页面: {}, 当前该页人数: {}", uri, pageMap.get(uri).size());
                     return broadcast(uri);
                 })
                 .then(Mono.defer(() -> {
@@ -108,7 +107,6 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
                     recordTotalSample();
 
                     int remain = pageMap.getOrDefault(uri, Set.of()).size();
-                    log.info("[Online-Plugin] 用户离开页面: {}, 剩余人数: {}", uri, remain);
 
                     return broadcast(uri);
                 }));
