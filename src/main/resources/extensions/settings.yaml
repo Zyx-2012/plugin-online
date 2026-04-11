@@ -10,15 +10,15 @@ spec:
         - $formkit: number
           name: clean_session_time
           value: 600
-          label: 清理频率
-          help: 超过该秒数未收到心跳，可视为失活会话。单位：秒
+          label: 会话失活时间
+          help: 服务端超过该秒数未收到心跳后会清理失活会话。单位：秒
           validation: required|number|min:30
 
         - $formkit: checkbox
           name: expose_detail_paths
           value: false
-          label: 数据公开性
-          help: 开启后允许前端公开获取详细路径分布；关闭时建议仅公开总人数接口
+          label: 公开详细路径
+          help: 该选项已废弃，现已更改为非脱敏。预计在未来专门优化
 
         - $formkit: number
           name: refresh_rate

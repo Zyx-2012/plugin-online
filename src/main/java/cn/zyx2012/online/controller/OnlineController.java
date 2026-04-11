@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import run.halo.app.plugin.ApiVersion;
 
+import java.security.Principal;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -24,17 +25,20 @@ public class OnlineController {
     }
 
     @GetMapping
-    public List<Map<String, Object>> getStats() {
-        handler.cleanupClosedSessions();
+    public List<Map<String, Object>> getStats(Principal principal) {
+        PageOnlineHandler.BasicSetting setting = handler.getBasicSettingSnapshot();
+        boolean anonymousRequest = principal == null;
+        boolean exposeDetailToCurrentRequest = setting.exposeDetailPathsEnabled() || !anonymousRequest;
 
-        return handler.getPageMap().entrySet().stream()
-            .filter(entry -> !entry.getValue().isEmpty())
-            .map(entry -> {
+        return handler.getPageStats(setting.normalizedCleanSessionTime()).stream()
+            .filter(pageStat -> !anonymousRequest || !pageStat.privatePage())
+            .map(pageStat -> {
+                boolean redactAllDetails = !exposeDetailToCurrentRequest;
                 Map<String, Object> stat = new HashMap<>();
-                stat.put("uri", entry.getKey());
-                stat.put("count", entry.getValue().size());
-                stat.put("lastActiveAt", handler.getLastActiveMap().get(entry.getKey()));
-                stat.put("viewUrl", entry.getKey());
+                stat.put("uri", redactAllDetails ? "-1" : pageStat.uri());
+                stat.put("count", redactAllDetails ? -1 : pageStat.count());
+                stat.put("lastActiveAt", redactAllDetails ? null : pageStat.lastActiveAt());
+                stat.put("viewUrl", redactAllDetails ? "-1" : pageStat.uri());
                 return stat;
             })
             .sorted((a, b) -> (int) b.get("count") - (int) a.get("count"))
@@ -42,18 +46,18 @@ public class OnlineController {
     }
 
     @GetMapping("/summary")
-    public Map<String, Object> getSummary() {
+    public Map<String, Object> getSummary(Principal principal) {
+        PageOnlineHandler.BasicSetting setting = handler.getBasicSettingSnapshot();
+        int cleanSessionTime = setting.normalizedCleanSessionTime();
         Map<String, Object> summary = new HashMap<>();
-        summary.put("total", handler.getCurrentTotalOnline());
-        summary.put("peak24h", handler.getPeakOnlineInLast24Hours());
-        summary.put("activePages", handler.getActivePageCount());
+        summary.put("total", handler.getCurrentTotalOnline(cleanSessionTime));
+        summary.put("peak24h", handler.getPeakOnlineInLast24Hours(cleanSessionTime));
+        summary.put("activePages", handler.getActivePageCount(cleanSessionTime));
         summary.put("updatedAt", Instant.now());
         summary.put("wsActive", true);
+        summary.put("refreshRate", setting.normalizedRefreshRate());
+        summary.put("exposeDetailPaths", setting.exposeDetailPathsEnabled());
+        summary.put("detailMasked", !setting.exposeDetailPathsEnabled() && principal == null);
         return summary;
-    }
-
-    @GetMapping("/total")
-    public Map<String, Object> getTotal() {
-        return Map.of("total", handler.getCurrentTotalOnline());
     }
 }

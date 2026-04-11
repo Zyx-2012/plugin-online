@@ -13,6 +13,9 @@ const summary = ref<OnlineSummary>({
   activePages: 0,
   updatedAt: new Date().toISOString(),
   wsActive: true,
+  refreshRate: 10,
+  exposeDetailPaths: false,
+  detailMasked: false,
 });
 
 const refreshRateSeconds = ref(10);
@@ -25,6 +28,7 @@ const sortedItems = computed(() => {
 const totalLabel = computed(() => summary.value.total.toLocaleString());
 const peakLabel = computed(() => summary.value.peak24h.toLocaleString());
 const activePagesLabel = computed(() => summary.value.activePages.toLocaleString());
+const isDetailMasked = computed(() => Boolean(summary.value.detailMasked));
 
 function formatRelativeTime(input?: string | null) {
   if (!input) return "—";
@@ -38,6 +42,20 @@ function formatRelativeTime(input?: string | null) {
   return `${Math.floor(diff / 86_400_000)} 天前`;
 }
 
+function applyRefreshRate(nextRate?: number) {
+  const normalizedRate =
+    typeof nextRate === "number" && Number.isFinite(nextRate)
+      ? Math.min(Math.max(nextRate, 3), 120)
+      : 10;
+
+  if (refreshRateSeconds.value !== normalizedRate) {
+    refreshRateSeconds.value = normalizedRate;
+    if (!loading.value) {
+      startPolling();
+    }
+  }
+}
+
 async function loadData() {
   try {
     error.value = "";
@@ -46,6 +64,7 @@ async function loadData() {
       fetchStats(),
     ]);
     summary.value = summaryRes;
+    applyRefreshRate(summaryRes.refreshRate);
     items.value = statsRes;
   } catch (e) {
     console.error(e);
@@ -68,6 +87,9 @@ function stopPolling() {
 }
 
 function openPage(uri: string) {
+  if (!uri || uri === "-1") {
+    return;
+  }
   const url = uri.startsWith("/") ? uri : `/${uri}`;
   window.open(url, "_blank");
 }
@@ -124,6 +146,10 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <div v-if="isDetailMasked" class="om-empty">
+        当前请求使用脱敏视图，详细路径与页面跳转已隐藏。
+      </div>
+
       <div v-if="loading" class="om-empty">正在加载实时数据…</div>
       <div v-else-if="error" class="om-empty om-empty--error">{{ error }}</div>
       <div v-else-if="sortedItems.length === 0" class="om-empty">当前没有在线页面</div>
@@ -145,8 +171,12 @@ onBeforeUnmount(() => {
               </td>
               <td>{{ formatRelativeTime(item.lastActiveAt) }}</td>
               <td>
-                <button class="om-link-btn" @click="openPage(item.viewUrl)">
-                  查看页面
+                <button
+                  class="om-link-btn"
+                  :disabled="item.viewUrl === '-1'"
+                  @click="openPage(item.viewUrl)"
+                >
+                  {{ item.viewUrl === "-1" ? "已脱敏" : "查看页面" }}
                 </button>
               </td>
             </tr>

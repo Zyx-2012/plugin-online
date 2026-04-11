@@ -7,10 +7,20 @@
     let pathnameWatcher = null;
     let currentPath = null;
     let reconnectTimer = null;
-    let manualClose = false;
 
     function getCurrentPath() {
         return window.location.pathname || "/";
+    }
+
+    function isPrivatePage() {
+        return Boolean(window.__ONLINE_MONITOR_META__ && window.__ONLINE_MONITOR_META__.privatePage);
+    }
+
+    function buildRegisterPayload(path) {
+        return JSON.stringify({
+            uri: path,
+            privatePage: isPrivatePage()
+        });
     }
 
     function clearHeartbeat() {
@@ -27,6 +37,19 @@
         }
     }
 
+    function isSocketUsable(ws) {
+        return Boolean(ws) && (
+            ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING
+        );
+    }
+
+    function scheduleReconnect() {
+        clearReconnect();
+        reconnectTimer = setTimeout(() => {
+            connect(true);
+        }, 1500);
+    }
+
     function startHeartbeat(ws) {
         clearHeartbeat();
         heartbeatTimer = setInterval(() => {
@@ -40,7 +63,8 @@
         clearHeartbeat();
         if (socket) {
             try {
-                manualClose = true;
+                socket.onclose = null;
+                socket.onerror = null;
                 socket.close();
             } catch (e) {
                 console.debug("[online-monitor] close socket failed", e);
@@ -63,8 +87,10 @@
 
     function connect(force) {
         const nextPath = getCurrentPath();
+        const samePath = currentPath === nextPath;
 
-        if (!force && socket && socket.readyState === WebSocket.OPEN && currentPath === nextPath) {
+        // 当前连接仍然可用时，不因为 pageshow / visibilitychange 之类的事件重复重连
+        if (samePath && isSocketUsable(socket)) {
             return;
         }
 
@@ -72,40 +98,30 @@
         clearReconnect();
 
         currentPath = nextPath;
-        manualClose = false;
-
         const ws = new WebSocket(wsUrl);
         socket = ws;
 
         ws.onopen = function () {
-            if (socket !== ws || ws.readyState !== WebSocket.OPEN) {
-                return;
-            }
+            // 确保只有当前最新的 socket 实例能继续执行
+            if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
 
-            ws.send(currentPath);
+            ws.send(buildRegisterPayload(currentPath));
             startHeartbeat(ws);
 
+            // 触发注册成功事件
             emitRegistered(currentPath);
-            setTimeout(() => emitRegistered(currentPath), 150);
-            setTimeout(() => emitRegistered(currentPath), 500);
         };
 
         ws.onclose = function () {
-            clearHeartbeat();
-
             if (socket === ws) {
                 socket = null;
-            }
-
-            if (!manualClose) {
-                reconnectTimer = setTimeout(() => {
-                    connect(true);
-                }, 1500);
+                clearHeartbeat();
+                scheduleReconnect();
             }
         };
 
         ws.onerror = function () {
-            // 交给 onclose 统一处理
+            // onerror 后会触发 onclose，由 onclose 统一处理
         };
     }
 
@@ -123,13 +139,14 @@
 
         history.pushState = function () {
             const result = rawPushState.apply(this, arguments);
-            setTimeout(refreshIfPathChanged, 0);
+            // 使用 microtask 确保在路径更新后检查
+            Promise.resolve().then(refreshIfPathChanged);
             return result;
         };
 
         history.replaceState = function () {
             const result = rawReplaceState.apply(this, arguments);
-            setTimeout(refreshIfPathChanged, 0);
+            Promise.resolve().then(refreshIfPathChanged);
             return result;
         };
     }
@@ -139,13 +156,15 @@
         window.addEventListener("hashchange", refreshIfPathChanged);
 
         window.addEventListener("pageshow", function () {
-            connect(true);
+            if (!isSocketUsable(socket)) {
+                connect(true);
+            }
         });
 
         document.addEventListener("visibilitychange", function () {
             if (!document.hidden) {
                 refreshIfPathChanged();
-                if (!socket || socket.readyState !== WebSocket.OPEN) {
+                if (!isSocketUsable(socket)) {
                     connect(true);
                 }
             }
@@ -153,12 +172,12 @@
     }
 
     function startPathWatcher() {
-        if (pathnameWatcher) {
-            clearInterval(pathnameWatcher);
-        }
-        pathnameWatcher = setInterval(refreshIfPathChanged, 1000);
+        if (pathnameWatcher) clearInterval(pathnameWatcher);
+        // 降低轮询频率或作为最后的保底
+        pathnameWatcher = setInterval(refreshIfPathChanged, 2000);
     }
 
+    // 初始化
     installHistoryHooks();
     installRouteListeners();
     connect(true);
