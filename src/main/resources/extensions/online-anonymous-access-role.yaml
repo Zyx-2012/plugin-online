@@ -17,7 +17,7 @@ rules:
 
   - apiGroups: ["online-user.zyx2012.cn"]
     resources: ["stats"]
-    resourceNames: ["summary", "total"]
+    resourceNames: ["summary"]
     verbs: ["get"]
 
   - apiGroups: ["online-user.zyx2012.cn"]
