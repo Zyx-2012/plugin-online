@@ -24,20 +24,23 @@ jobs:
         with:
           version: 10.6.3
 
-      - name: 4. 手动编译前端 UI (绝对路径，防报错)
+      - name: 4. 手动编译前端 UI
         working-directory: ui
         run: |
           pnpm install --no-frozen-lockfile
           pnpm build
 
-      - name: 5. 编译后端 (使用你的 re 命令，并屏蔽官方 UI 任务)
+      - name: 5. 强行修复 gradlew 权限 (保险措施)
+        run: chmod +x gradlew
+
+      - name: 6. 编译后端 (执行你的 re 命令，并手动绕过报错的任务)
         run: |
-          chmod +x gradlew
           ./gradlew re -x test -x :ui:pnpmInstall -x :ui:pnpmSetup -x :ui:nodeSetup
 
-      - name: 6. 推送到 Halo 应用市场
+      - name: 7. 推送到 Halo 应用市场
         uses: halo-sigs/appstore-release-action@v1
         with:
           app-id: "ion2qhko"
+          # 如果你的 re 命令生成的 jar 在别处，请修改此路径
           app-file: "build/libs/*.jar" 
           api-token: ${{ secrets.HALO_PAT }}
