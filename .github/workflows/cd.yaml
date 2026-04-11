@@ -2,20 +2,40 @@ name: CD
 
 on:
   release:
-    types:
-      - published
+    types: [published]
 
 jobs:
-  cd:
-    uses: halo-sigs/reusable-workflows/.github/workflows/plugin-cd.yaml@v3
-    secrets:
-      halo-pat: ${{ secrets.HALO_PAT }}
+  build-and-release:
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-    with:
-      # ui-path: "ui"
-      pnpm-version: 10
-      node-version: 22
-      java-version: 21
-      skip-appstore-release: false
-      app-id: "ion2qhko"
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Build UI Manually
+        working-directory: ui
+        run: |
+          pnpm install
+          pnpm build
+      - name: Build Backend with Gradle
+        run: |
+          chmod +x gradlew
+          # 这里使用你的命令: re -x test
+          # 同时加上 -x :ui:pnpmInstall 以防止 Gradle 再次去跑那个报错的任务
+          ./gradlew re -x test -x :ui:pnpmInstall -x :ui:pnpmSetup
+      - name: Push to Halo App Store
+        uses: halo-sigs/appstore-release-action@v1
+        with:
+          app-id: "ion2qhko"
+          app-file: "build/libs/*.jar" 
+          api-token: ${{ secrets.HALO_PAT }}
