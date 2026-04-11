@@ -25,25 +25,23 @@ jobs:
           version: 10.6.3
 
       - name: 4. Build UI Manually
-        # 这里强制进入 ui 目录，并使用 pnpm 10 编译
         working-directory: ui
         run: |
           pnpm install --no-frozen-lockfile
           pnpm build
 
-      - name: 5. Fix Permissions (FORCE)
-        # 这是解决 126 错误的关键：不等 Git，自己动手
+      - name: 5. Fix Permissions
         run: chmod +x gradlew
 
-      - name: 6. Build Backend (Your Command)
-        # 使用你本地熟悉的命令，并排除掉 Gradle 插件自带的 UI 任务防止冲突
+      - name: 6. Build Backend
         run: |
           ./gradlew re -x test -x :ui:pnpmInstall -x :ui:pnpmSetup -x :ui:nodeSetup
 
       - name: 7. Push to Halo App Store
-        # 使用独立的发布 Action，不再依赖封装好的工作流
-        uses: halo-sigs/appstore-release-action@v1
+        # 修正后的 Action 地址
+        uses: halo-sigs/appstore-promote@v1
         with:
           app-id: "ion2qhko"
+          # 确保这里的路径指向生成的 jar 包
           app-file: "build/libs/*.jar"
           api-token: ${{ secrets.HALO_PAT }}
