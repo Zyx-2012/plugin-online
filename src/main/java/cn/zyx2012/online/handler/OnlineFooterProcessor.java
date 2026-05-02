@@ -16,6 +16,11 @@ import java.util.Map;
 public class OnlineFooterProcessor implements TemplateFooterProcessor {
 
     private static final Object PUBLIC_MARKER = "public";
+    private final PageOnlineHandler handler;
+
+    public OnlineFooterProcessor(PageOnlineHandler handler) {
+        this.handler = handler;
+    }
 
     @Override
     public Mono<Void> process(ITemplateContext context,
@@ -25,13 +30,17 @@ public class OnlineFooterProcessor implements TemplateFooterProcessor {
 
         var factory = context.getModelFactory();
         boolean privatePage = isPrivatePage(context);
+        PageOnlineHandler.BasicSetting setting = handler.getBasicSettingSnapshot();
 
         String script = """
             <script>
-            window.__ONLINE_MONITOR_META__ = Object.assign({}, window.__ONLINE_MONITOR_META__, { privatePage: %s });
+            window.__ONLINE_MONITOR_META__ = Object.assign({}, window.__ONLINE_MONITOR_META__, {
+                privatePage: %s,
+                rateLimitInterval: %d
+            });
             </script>
             <script src="/plugins/online/assets/static/js/client.js"></script>
-            """.formatted(privatePage);
+            """.formatted(privatePage, setting.normalizedRateLimitInterval());
 
         model.add(factory.createText("\n" + script + "\n"));
         return Mono.empty();

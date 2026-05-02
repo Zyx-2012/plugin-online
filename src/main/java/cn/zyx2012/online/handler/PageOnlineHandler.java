@@ -19,11 +19,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 
@@ -50,6 +52,10 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
     private final Map<String, Boolean> privatePageMap = new ConcurrentHashMap<>();
     private final Map<String, Instant> sessionActiveMap = new ConcurrentHashMap<>();
     private final Map<String, Boolean> sessionPrivateMap = new ConcurrentHashMap<>();
+    private final Map<String, String> sessionAnonymousIdMap = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, ReadingProgress>> readingProgressMap = new ConcurrentHashMap<>();
+    private final Map<String, Instant> httpSessionActiveMap = new ConcurrentHashMap<>();
+    private final Map<String, String> sessionUriMap = new ConcurrentHashMap<>();
     private final Deque<OnlineSample> totalSamples = new ArrayDeque<>();
     private final ReactiveSettingFetcher settingFetcher;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -89,15 +95,10 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
                 .concatMap(payload -> {
                     if ("ping".equalsIgnoreCase(payload)) {
                         touchSession(session);
-                        String uri = (String) session.getAttributes().get("uri");
+                        String uri = sessionUriMap.get(session.getId());
                         if (uri != null) {
                             touch(uri);
                         }
-                        return Mono.empty();
-                    }
-
-                    if (session.getAttributes().containsKey("uri")) {
-                        log.warn("[Security] 用户尝试重复发送路径或篡改数据，已拦截。");
                         return Mono.empty();
                     }
 
@@ -105,6 +106,12 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
                     String uri = normalizeUri(clientPayload.uri());
                     if (uri == null) {
                         log.warn("[Security] 用户发送了非法路径载荷，已忽略。sessionId={}", session.getId());
+                        return Mono.empty();
+                    }
+
+                    String existingUri = sessionUriMap.putIfAbsent(session.getId(), uri);
+                    if (existingUri != null) {
+                        log.warn("[Security] 用户尝试重复发送路径或篡改数据，已拦截。sessionId={}", session.getId());
                         return Mono.empty();
                     }
 
@@ -120,7 +127,7 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
                     return broadcast(uri);
                 })
                 .then(Mono.defer(() -> {
-                    String uri = (String) session.getAttributes().get("uri");
+                    String uri = sessionUriMap.remove(session.getId());
                     if (uri == null) {
                         return Mono.empty();
                     }
@@ -170,12 +177,21 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
             .filter(WebSocketSession::isOpen)
             .count();
 
-        String count = String.valueOf(onlineCount);
+        String msgJson;
+        try {
+            Map<String, Object> msg = new HashMap<>();
+            msg.put("type", "count");
+            msg.put("count", onlineCount);
+            msgJson = objectMapper.writeValueAsString(msg);
+        } catch (Exception e) {
+            msgJson = "{\"type\":\"count\",\"count\":" + onlineCount + "}";
+        }
 
+        final String finalJson = msgJson;
         return Flux.fromIterable(sessions)
             .filter(WebSocketSession::isOpen)
             .concatMap(session ->
-                session.send(Mono.just(session.textMessage(count)))
+                session.send(Mono.just(session.textMessage(finalJson)))
                     .onErrorResume(ex -> {
                         log.debug("广播在线人数失败, uri={}, sessionId={}", uri, session.getId(), ex);
                         return Mono.empty();
@@ -274,18 +290,34 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
             entry.getValue() == null || entry.getValue().isBefore(threshold)
         );
         sessionPrivateMap.keySet().removeIf(sessionId -> !sessionActiveMap.containsKey(sessionId));
+        sessionAnonymousIdMap.keySet().removeIf(sessionId -> !sessionActiveMap.containsKey(sessionId));
+        sessionUriMap.keySet().removeIf(sessionId -> !sessionActiveMap.containsKey(sessionId));
+        readingProgressMap.forEach((uri, progressMap) -> {
+            progressMap.keySet().removeIf(sessionId -> {
+                boolean isWsActive = sessionActiveMap.containsKey(sessionId);
+                boolean isHttpActive = httpSessionActiveMap.containsKey(sessionId)
+                    && httpSessionActiveMap.get(sessionId).isAfter(threshold);
+                return !isWsActive && !isHttpActive;
+            });
+        });
+        readingProgressMap.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+        httpSessionActiveMap.entrySet().removeIf(entry ->
+            entry.getValue() == null || entry.getValue().isBefore(threshold)
+        );
     }
 
     private boolean isExpiredSession(WebSocketSession session, Instant threshold) {
         if (!session.isOpen()) {
             sessionActiveMap.remove(session.getId());
             sessionPrivateMap.remove(session.getId());
+            sessionUriMap.remove(session.getId());
             return true;
         }
         Instant lastSeen = sessionActiveMap.get(session.getId());
         if (lastSeen == null || lastSeen.isBefore(threshold)) {
             sessionActiveMap.remove(session.getId());
             sessionPrivateMap.remove(session.getId());
+            sessionUriMap.remove(session.getId());
             return true;
         }
         return false;
@@ -470,6 +502,95 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
     public record PageStat(String uri, int count, Instant lastActiveAt, boolean privatePage) {
     }
 
+    public record ReadingProgress(
+        String anonymousId,
+        double scrollPercentage,
+        int scrollY,
+        Instant updatedAt
+    ) {
+    }
+
+    public void updateReadingProgress(String sessionId, String uri, double scrollPercentage, int scrollY) {
+        String normalizedUri = normalizeUri(uri);
+        if (normalizedUri == null) {
+            return;
+        }
+        httpSessionActiveMap.put(sessionId, Instant.now());
+        String anonymousId = sessionAnonymousIdMap.computeIfAbsent(sessionId, k -> UUID.randomUUID().toString().substring(0, 8));
+        Map<String, ReadingProgress> pageProgress = readingProgressMap.computeIfAbsent(normalizedUri, k -> new ConcurrentHashMap<>());
+        pageProgress.put(sessionId, new ReadingProgress(anonymousId, scrollPercentage, scrollY, Instant.now()));
+    }
+
+    public List<ReadingProgress> getReadingProgressForUri(String uri) {
+        String normalizedUri = normalizeUri(uri);
+        if (normalizedUri == null) {
+            return List.of();
+        }
+        Map<String, ReadingProgress> pageProgress = readingProgressMap.get(normalizedUri);
+        if (pageProgress == null || pageProgress.isEmpty()) {
+            return List.of();
+        }
+        Instant threshold = Instant.now().minusSeconds(120);
+        return pageProgress.values().stream()
+            .filter(p -> p.updatedAt() != null && p.updatedAt().isAfter(threshold))
+            .toList();
+    }
+
+    /**
+     * 向指定 URI 的所有 WebSocket 客户端广播阅读进度。
+     * 排除上报者本人，仅推送其他用户的进度数据。
+     */
+    public void broadcastReadingProgress(String uri, String excludeSessionId) {
+        String normalizedUri = normalizeUri(uri);
+        if (normalizedUri == null) {
+            return;
+        }
+        Set<WebSocketSession> sessions = pageMap.get(normalizedUri);
+        if (sessions == null || sessions.isEmpty()) {
+            return;
+        }
+
+        String excludeAnonymousId = sessionAnonymousIdMap.get(excludeSessionId);
+        List<ReadingProgress> progressList = getReadingProgressForUri(normalizedUri)
+            .stream()
+            .filter(p -> excludeAnonymousId == null || !excludeAnonymousId.equals(p.anonymousId()))
+            .toList();
+
+        String progressJson;
+        try {
+            Map<String, Object> msg = new HashMap<>();
+            msg.put("type", "progress");
+            msg.put("list", progressList);
+            progressJson = objectMapper.writeValueAsString(msg);
+        } catch (Exception e) {
+            log.debug("序列化阅读进度失败", e);
+            return;
+        }
+
+        final String finalJson = progressJson;
+        Flux.fromIterable(sessions)
+            .filter(s -> s.isOpen() && !s.getId().equals(excludeSessionId))
+            .concatMap(s ->
+                s.send(Mono.just(s.textMessage(finalJson)))
+                    .onErrorResume(ex -> {
+                        log.debug("推送阅读进度失败, sessionId={}", s.getId(), ex);
+                        return Mono.empty();
+                    })
+            )
+            .subscribe();
+    }
+
+    /**
+     * 更新阅读进度并触发 WebSocket 广播。
+     * 由 Controller 调用，替代原来仅写内存的逻辑。
+     */
+    public void updateReadingProgressAndBroadcast(
+            String sessionId, String uri,
+            double scrollPercentage, int scrollY) {
+        updateReadingProgress(sessionId, uri, scrollPercentage, scrollY);
+        broadcastReadingProgress(uri, sessionId);
+    }
+
     public record BasicSetting(
         @JsonProperty("clean_session_time")
         Integer cleanSessionTime,
@@ -478,12 +599,18 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
         @JsonProperty("refresh_rate")
         Integer refreshRate,
         @JsonProperty("origin_whitelist")
-        String originWhitelist
+        String originWhitelist,
+        @JsonProperty("enable_reading_progress")
+        Boolean enableReadingProgress,
+        @JsonProperty("reading_progress_interval")
+        Integer readingProgressInterval,
+        @JsonProperty("rate_limit_interval")
+        Integer rateLimitInterval
     ) {
         public static final String GROUP = "basic";
 
         public static BasicSetting defaultValue() {
-            return new BasicSetting(600, false, 10, "");
+            return new BasicSetting(600, false, 10, "", true, 5, 3);
         }
 
         public int normalizedCleanSessionTime() {
@@ -506,6 +633,24 @@ public class PageOnlineHandler implements WebSocketHandler, WebSocketEndpoint {
 
         public String normalizedOriginWhitelist() {
             return originWhitelist == null ? "" : originWhitelist;
+        }
+
+        public boolean isReadingProgressEnabled() {
+            return Boolean.TRUE.equals(enableReadingProgress);
+        }
+
+        public int normalizedReadingProgressInterval() {
+            if (readingProgressInterval == null) {
+                return 5;
+            }
+            return Math.max(2, Math.min(readingProgressInterval, 60));
+        }
+
+        public int normalizedRateLimitInterval() {
+            if (rateLimitInterval == null) {
+                return 3;
+            }
+            return Math.max(1, Math.min(rateLimitInterval, 60));
         }
     }
 }

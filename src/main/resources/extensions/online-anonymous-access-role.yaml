@@ -23,3 +23,8 @@ rules:
   - apiGroups: ["online-user.zyx2012.cn"]
     resources: ["online-ws"]
     verbs: ["watch"]
+
+  - apiGroups: ["online-user.zyx2012.cn"]
+    resources: ["stats"]
+    resourceNames: ["reading-progress"]
+    verbs: ["get", "create"]
