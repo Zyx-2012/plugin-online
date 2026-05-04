@@ -6,6 +6,7 @@ metadata:
   # The name defines how the plugin is invoked, A unique name
   name: online
 spec:
+  version: "1.0.5"
   enabled: true
   requires: ">=2.23.0"
   author:

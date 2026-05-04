@@ -9,24 +9,19 @@
     let currentPath = null;
     let reconnectTimer = null;
 
-    // 唯一客户端标识，用于区分同一 IP 下的不同用户
-    const CLIENT_ID_KEY = "__online_monitor_client_id__";
-    let clientId = localStorage.getItem(CLIENT_ID_KEY);
-    if (!clientId) {
-        clientId = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-        try {
-            localStorage.setItem(CLIENT_ID_KEY, clientId);
-        } catch (e) {
-            // localStorage 不可用则使用内存中的临时 ID
-        }
-    }
+    // 服务端分配的唯一客户端令牌，用于客户端本地排除自己
+    const TOKEN_KEY = "__online_monitor_token__";
+    const LEGACY_CLIENT_ID_KEY = "__online_monitor_client_id__";
+    let clientToken = localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_CLIENT_ID_KEY) || "";
 
     // ========== 阅读进度相关状态 ==========
     let progressReportTimer = null;
     let progressIndicators = [];
     const meta = window.__ONLINE_MONITOR_META__ || {};
     const RATE_LIMIT_INTERVAL_MS = (meta.rateLimitInterval || 3) * 1000;
-    const PROGRESS_THROTTLE_MS = RATE_LIMIT_INTERVAL_MS;
+    const READING_PROGRESS_ENABLED = meta.readingProgressEnabled !== false;
+    const READING_PROGRESS_INTERVAL_MS = Math.max(1, Math.min(meta.readingProgressInterval || 1, 60)) * 1000;
+    const PROGRESS_THROTTLE_MS = READING_PROGRESS_INTERVAL_MS;
 
     function getCurrentPath() {
         return window.location.pathname || "/";
@@ -39,7 +34,8 @@
     function buildRegisterPayload(path) {
         return JSON.stringify({
             uri: path,
-            privatePage: isPrivatePage()
+            privatePage: isPrivatePage(),
+            token: clientToken
         });
     }
 
@@ -125,13 +121,13 @@
             // 确保只有当前最新的 socket 实例能继续执行
             if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
 
+            // 先安装消息处理器，避免服务端立即返回 identity 时被错过
+            installWsMessageHandler(ws);
             ws.send(buildRegisterPayload(currentPath));
             startHeartbeat(ws);
 
             // 触发注册成功事件
             emitRegistered(currentPath);
-            // 安装 WebSocket 消息处理器（接收进度推送）
-            installWsMessageHandler(ws);
         };
 
         ws.onclose = function () {
@@ -212,17 +208,64 @@
         };
     }
 
-    function getScrollProgress() {
+    function findArticleElement() {
+        const selectors = [
+            "article .entry-content",
+            ".entry-content",
+            ".post-content",
+            ".content",
+            "article.post",
+            "article"
+        ];
+        for (const selector of selectors) {
+            const element = document.querySelector(selector);
+            if (isUsableArticleElement(element)) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    function isUsableArticleElement(element) {
+        if (!element) return false;
+        const rect = element.getBoundingClientRect();
+        const height = Math.max(element.scrollHeight || 0, rect.height || 0);
+        const textLength = (element.innerText || "").trim().length;
+        return height >= Math.min(window.innerHeight * 0.5, 320) && textLength >= 120;
+    }
+
+    function getPageScrollProgress() {
         const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
         const docHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
         if (docHeight <= 0) {
-            return { scrollPercentage: 0, scrollY: 0 };
+            return { scrollPercentage: 0, scrollY: 0, mode: "page" };
         }
         const percentage = Math.min(1, Math.max(0, scrollTop / docHeight));
         return {
             scrollPercentage: parseFloat(percentage.toFixed(4)),
-            scrollY: Math.round(scrollTop)
+            scrollY: Math.round(scrollTop),
+            mode: "page"
         };
+    }
+
+    function getScrollProgress() {
+        const article = findArticleElement();
+        if (article) {
+            const rect = article.getBoundingClientRect();
+            const articleHeight = Math.max(article.scrollHeight || 0, rect.height || 0);
+            if (articleHeight > 0) {
+                const readingLine = window.innerHeight * 0.5;
+                const articleTopInDocument = rect.top + (window.scrollY || document.documentElement.scrollTop || 0);
+                const positionInArticle = readingLine - rect.top;
+                const percentage = Math.min(1, Math.max(0, positionInArticle / articleHeight));
+                return {
+                    scrollPercentage: parseFloat(percentage.toFixed(4)),
+                    scrollY: Math.round(articleTopInDocument + positionInArticle),
+                    mode: "article"
+                };
+            }
+        }
+        return getPageScrollProgress();
     }
 
     function reportProgress() {
@@ -235,7 +278,8 @@
                 uri: path,
                 scrollPercentage: progress.scrollPercentage,
                 scrollY: progress.scrollY,
-                clientId: clientId
+                mode: progress.mode,
+                token: clientToken
             }),
             keepalive: true
         }).catch(err => {
@@ -244,13 +288,14 @@
     }
 
     function reportProgressViaWs() {
-        if (!isSocketUsable(socket)) return;
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
         const progress = getScrollProgress();
         try {
             socket.send(JSON.stringify({
                 type: "progress-report",
                 scrollPercentage: progress.scrollPercentage,
-                scrollY: progress.scrollY
+                scrollY: progress.scrollY,
+                mode: progress.mode
             }));
         } catch (e) {
             console.debug("[online-monitor] WS 上报进度失败", e);
@@ -262,12 +307,26 @@
             if (socket !== ws) return;
             try {
                 const msg = JSON.parse(event.data);
+                window.dispatchEvent(new CustomEvent("online-monitor:ws-message", {
+                    detail: { message: msg, raw: event.data }
+                }));
+                if (msg.type === "identity") {
+                    updateClientToken(msg.token || msg.anonymousId || "");
+                    window.dispatchEvent(new CustomEvent("online-monitor:identity", {
+                        detail: { token: clientToken }
+                    }));
+                    return;
+                }
                 if (msg.type === "progress") {
-                    renderProgressIndicators(msg.list || []);
+                    const fullList = Array.isArray(msg.list) ? msg.list : [];
+                    const progressList = filterOwnProgress(fullList);
+                    renderProgressIndicators(progressList);
                     window.dispatchEvent(new CustomEvent("online-monitor:progress-updated", {
                         detail: {
                             uri: getCurrentPath(),
-                            progressList: msg.list || []
+                            token: clientToken,
+                            progressList: progressList,
+                            fullProgressList: fullList
                         }
                     }));
                 }
@@ -275,6 +334,30 @@
                 console.debug("[online-monitor] 收到非 JSON 消息（旧版兼容）:", event.data);
             }
         };
+    }
+
+    function updateClientToken(token) {
+        if (!token || typeof token !== "string") return;
+        clientToken = token;
+        try {
+            localStorage.setItem(TOKEN_KEY, token);
+            localStorage.setItem(LEGACY_CLIENT_ID_KEY, token);
+        } catch (e) {
+            // localStorage 不可用时仅保留内存 token
+        }
+    }
+
+    function filterOwnProgress(progressList) {
+        if (!Array.isArray(progressList)) {
+            return [];
+        }
+        if (!clientToken) {
+            return [];
+        }
+        return progressList.filter(item => {
+            const itemToken = item && (item.token || item.anonymousId);
+            return itemToken !== clientToken;
+        });
     }
 
     function createProgressContainer() {
@@ -299,6 +382,7 @@
 
     function renderProgressIndicators(progressList) {
         const container = createProgressContainer();
+        progressList = filterOwnProgress(progressList);
         // 清空旧节点
         while (container.firstChild) {
             container.removeChild(container.firstChild);
@@ -335,15 +419,24 @@
     }
 
     function startProgressReporting() {
-        // 滚动事件节流上报（HTTP POST 主通道）
-        const throttledReport = throttle(reportProgress, PROGRESS_THROTTLE_MS);
+        if (!READING_PROGRESS_ENABLED) {
+            stopProgressReporting();
+            return;
+        }
+        // 滚动事件节流上报（WebSocket 主通道）
+        const throttledReport = throttle(reportProgressViaWs, PROGRESS_THROTTLE_MS);
         window.addEventListener("scroll", throttledReport, { passive: true });
         // 页面加载后首次上报（延迟等待元素渲染）
-        setTimeout(reportProgress, 800);
+        setTimeout(reportProgressViaWs, 800);
+        // 即使用户停留不滚动，也定期刷新活跃阅读进度
+        if (progressReportTimer) {
+            clearInterval(progressReportTimer);
+        }
+        progressReportTimer = setInterval(reportProgressViaWs, READING_PROGRESS_INTERVAL_MS);
         // 页面隐藏后恢复时重新上报一次
         document.addEventListener("visibilitychange", function () {
             if (!document.hidden) {
-                setTimeout(reportProgress, 300);
+                setTimeout(reportProgressViaWs, 300);
             }
         });
     }

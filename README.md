@@ -156,15 +156,28 @@ fetch('/apis/online-user.zyx2012.cn/v1alpha1/stats')
   });
 ```
 
-### 方案四：监听阅读进度更新事件
+### 方案四：通过 GET 拉取阅读进度（推荐用于自定义脚本）
+
+```js
+fetch('/apis/online-user.zyx2012.cn/v1alpha1/stats/reading-progress?uri=' + encodeURIComponent(location.pathname))
+  .then(res => res.json())
+  .then(list => {
+    console.log('当前页面全量阅读进度：', list);
+  });
+```
+
+如果你需要在主题中自定义阅读进度的展示方式，推荐定时请求这个接口，然后在前端根据自己的 token 过滤自己。这样展示层与插件默认的 WebSocket 广播解耦，调试也更直观。
+
+### 方案五：监听阅读进度更新事件
 
 ```js
 window.addEventListener("online-monitor:progress-updated", function (e) {
   console.log('当前页面其他读者的阅读进度：', e.detail.progressList);
+  console.log('服务端返回的全量阅读进度：', e.detail.fullProgressList);
 });
 ```
 
-如果你需要在主题中自定义阅读进度的展示方式，可以监听此事件，插件默认会在页面右侧显示彩色圆点，但你也可以隐藏默认 UI 后自行渲染。
+如果你希望复用插件默认前台脚本已经接收到的实时数据，也可以直接监听这个事件。
 
 ---
 
@@ -220,13 +233,13 @@ ui/
 * 连接断开后自动重连，并避免在 `pageshow` / `visibilitychange` 下重复重连
 * 在当前页面注册完成后，主动派发前端事件通知主题组件刷新统计
 * **监听窗口滚动事件（节流 2 秒），上报当前阅读进度**
-* **每 5 秒拉取同页其他用户的阅读进度，并在页面右侧以彩色圆点展示**
+* **自定义展示脚本可通过 `GET /stats/reading-progress?uri=...` 拉取同页阅读进度并自行渲染**
 
 当前脚本会派发以下事件：
 
 * `online-monitor:registered`：当前页面已完成注册
 * `online-monitor:path-changed`：检测到页面路径变化
-* `online-monitor:progress-updated`：当前页面的阅读进度数据已更新（`detail.progressList` 为进度数组）
+* `online-monitor:progress-updated`：当前页面的阅读进度数据已更新（`detail.progressList` 为过滤掉自己的数组，`detail.fullProgressList` 为服务端返回的全量数组）
 
 如果主题中有侧边栏在线统计卡片，建议监听 `online-monitor:registered` 事件后重新请求 `/stats/summary`，这样可以避免页面刷新后由于 WebSocket 还未完成首条路径上报，导致前台短暂显示 `0` 的情况。
 

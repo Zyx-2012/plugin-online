@@ -40,7 +40,7 @@ public class OnlineController {
     @GetMapping
     public List<Map<String, Object>> getStats(Principal principal, ServerHttpRequest request) {
         PageOnlineHandler.BasicSetting setting = handler.getBasicSettingSnapshot();
-        long rateLimitMs = setting.normalizedRateLimitInterval() * 1_000L;
+        long rateLimitMs = setting.normalizedRateLimitIntervalMillis();
 
         String clientIp = IpRateLimiter.extractClientIp(request);
         String referer = request.getHeaders().getFirst("Referer");
@@ -70,7 +70,7 @@ public class OnlineController {
     @GetMapping("/summary")
     public Map<String, Object> getSummary(Principal principal, ServerHttpRequest request) {
         PageOnlineHandler.BasicSetting setting = handler.getBasicSettingSnapshot();
-        long rateLimitMs = setting.normalizedRateLimitInterval() * 1_000L;
+        long rateLimitMs = setting.normalizedRateLimitIntervalMillis();
 
         String clientIp = IpRateLimiter.extractClientIp(request);
         String referer = request.getHeaders().getFirst("Referer");
@@ -101,15 +101,31 @@ public class OnlineController {
         ServerHttpRequest request
     ) {
         PageOnlineHandler.BasicSetting setting = handler.getBasicSettingSnapshot();
-        long rateLimitMs = setting.normalizedRateLimitInterval() * 1_000L;
+        long rateLimitMs = setting.normalizedRateLimitIntervalMillis();
 
         String clientIp = IpRateLimiter.extractClientIp(request);
         if (!rateLimiter.isAllowed(clientIp + ":post-progress", rateLimitMs)) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "请求过于频繁，请稍后再试。");
         }
 
-        String sessionId = buildPseudoSessionId(request, principal, payload.getClientId());
-        handler.updateReadingProgressAndBroadcast(sessionId, payload.getUri(), payload.getScrollPercentage(), payload.getScrollY());
+        if (!setting.isReadingProgressEnabled()) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", false);
+            result.put("disabled", true);
+            return result;
+        }
+
+        String token = payload.getToken();
+        if ((token == null || token.isBlank()) && payload.getClientId() != null) {
+            token = payload.getClientId();
+        }
+        handler.updateReadingProgressAndBroadcast(
+            token,
+            payload.getUri(),
+            payload.getScrollPercentage(),
+            payload.getScrollY(),
+            payload.getMode()
+        );
 
         Map<String, Object> result = new HashMap<>();
         result.put("success", true);
@@ -122,14 +138,20 @@ public class OnlineController {
     @GetMapping("/reading-progress")
     public List<ReadingProgress> getReadingProgress(
         @RequestParam("uri") String uri,
+        @RequestParam(value = "clientId", required = false) String clientId,
+        Principal principal,
         ServerHttpRequest request
     ) {
         PageOnlineHandler.BasicSetting setting = handler.getBasicSettingSnapshot();
-        long rateLimitMs = setting.normalizedRateLimitInterval() * 1_000L;
+        long rateLimitMs = setting.normalizedRateLimitIntervalMillis();
 
         String clientIp = IpRateLimiter.extractClientIp(request);
         if (!rateLimiter.isAllowed(clientIp + ":get-progress", rateLimitMs)) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "请求过于频繁，请稍后再试。");
+        }
+
+        if (!setting.isReadingProgressEnabled()) {
+            return List.of();
         }
 
         return handler.getReadingProgressForUri(uri);
@@ -154,6 +176,8 @@ public class OnlineController {
         private String uri;
         private double scrollPercentage;
         private int scrollY;
+        private String mode;
+        private String token;
         private String clientId;
     }
 }

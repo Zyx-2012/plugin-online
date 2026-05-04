@@ -36,11 +36,18 @@ public class OnlineFooterProcessor implements TemplateFooterProcessor {
             <script>
             window.__ONLINE_MONITOR_META__ = Object.assign({}, window.__ONLINE_MONITOR_META__, {
                 privatePage: %s,
-                rateLimitInterval: %d
+                rateLimitInterval: %s,
+                readingProgressEnabled: %s,
+                readingProgressInterval: %d
             });
             </script>
             <script src="/plugins/online/assets/static/js/client.js"></script>
-            """.formatted(privatePage, setting.normalizedRateLimitInterval());
+            """.formatted(
+                privatePage,
+                setting.normalizedRateLimitInterval(),
+                setting.isReadingProgressEnabled(),
+                setting.normalizedReadingProgressInterval()
+            );
 
         model.add(factory.createText("\n" + script + "\n"));
         return Mono.empty();

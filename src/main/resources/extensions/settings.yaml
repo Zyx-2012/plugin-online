@@ -56,14 +56,14 @@ spec:
 
         - $formkit: number
           name: reading_progress_interval
-          value: 5
+          value: 1
           label: 阅读进度上报间隔
           help: 前端通过 WebSocket 定期发送阅读进度的时间间隔。单位：秒
-          validation: required|number|min:2|max:60
+          validation: required|number|min:1|max:60
 
         - $formkit: number
           name: rate_limit_interval
-          value: 1
+          value: 0.1
           label: 接口频率限制间隔
           help: 所有 HTTP API 的限流间隔。单位：秒/次。数值越大越省服务器资源，但数据更新越慢。
-          validation: required|number|min:1|max:60
+          validation: required|number|min:0.1|max:60
